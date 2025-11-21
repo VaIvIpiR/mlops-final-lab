@@ -1,7 +1,7 @@
 import os
 import sagemaker
 from sagemaker.workflow.pipeline import Pipeline
-from sagemaker.workflow.steps import TrainingStep, CreateModelStep
+from sagemaker.workflow.steps import TrainingStep, CreateModelStep, ProcessingStep
 from sagemaker.workflow.step_collections import RegisterModel
 from sagemaker.workflow.parameters import ParameterInteger, ParameterString
 from sagemaker.pytorch import PyTorch, PyTorchModel
@@ -135,15 +135,15 @@ def get_pipeline(
     return pipeline
 
 if __name__ == "__main__":
-    print("🚀 Building pipeline using Terraform resources...")
+    print("Building pipeline using Terraform resources...")
     
     import sys
     
     # Беремо роль з енвайронменту (GitHub) АБО використовуємо нову з Terraform як дефолт
     role_arn = os.environ.get("SAGEMAKER_ROLE_ARN", TERRAFORM_ROLE)
     
-    print(f"🔑 Using Role: {role_arn}")
-    print(f"🪣 Using Bucket: {TERRAFORM_BUCKET}")
+    print(f"Using Role: {role_arn}")
+    print(f"Using Bucket: {TERRAFORM_BUCKET}")
 
     pipeline = get_pipeline(
         region=os.environ.get("AWS_REGION", "eu-north-1"),
@@ -151,10 +151,10 @@ if __name__ == "__main__":
         default_bucket=TERRAFORM_BUCKET
     )
     
-    print(f"📝 Pipeline definition: {pipeline.name}")
+    print(f"Pipeline definition: {pipeline.name}")
     
     pipeline.upsert(role_arn=role_arn)
-    print("✅ Pipeline submitted/updated in SageMaker.")
+    print("Pipeline submitted/updated in SageMaker.")
     
     execution = pipeline.start()
-    print(f"🏃 Pipeline execution started. Execution ARN: {execution.arn}")
+    print(f"Pipeline execution started. Execution ARN: {execution.arn}")
