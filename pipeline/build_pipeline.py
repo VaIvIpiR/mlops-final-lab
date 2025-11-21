@@ -9,7 +9,6 @@ from sagemaker.inputs import TrainingInput
 from sagemaker.sklearn.processing import SKLearnProcessor
 from sagemaker.processing import ProcessingInput, ProcessingOutput
 
-# --- ВАШІ НОВІ РЕСУРСИ З TERRAFORM ---
 TERRAFORM_BUCKET = "mlops-lab-terraform-vaivipir-data"
 TERRAFORM_ROLE = "arn:aws:iam::584360834542:role/mlops-lab-terraform-role"
 
@@ -26,19 +25,12 @@ def get_pipeline(
     """
     sess = sagemaker.Session()
     
-    # 1. Якщо бакет не передали, використовуємо наш НОВИЙ з Terraform
     if default_bucket is None:
         default_bucket = TERRAFORM_BUCKET
 
-    # 2. Параметри пайплайну
+    # Параметри
     training_instance_type = ParameterString(name="TrainingInstanceType", default_value="ml.m5.large")
-    
-    # 3. Вказуємо шлях до даних у НОВОМУ бакеті
-    input_data = ParameterString(
-        name="InputData", 
-        default_value=f"s3://{default_bucket}/data/raw/"
-    )
-    
+    input_data = ParameterString(name="InputData", default_value=f"s3://{default_bucket}/data/raw/")
     epochs = ParameterInteger(name="Epochs", default_value=3)
     batch_size = ParameterInteger(name="BatchSize", default_value=8)
 
@@ -51,7 +43,6 @@ def get_pipeline(
         py_version='py39',
         instance_count=1,
         instance_type=training_instance_type,
-        # Зберігаємо результати у новий бакет
         output_path=f"s3://{default_bucket}/NewsClassifier/training_jobs",
         hyperparameters={'epochs': epochs, 'batch-size': batch_size, 'learning-rate': 2e-5},
         environment={
@@ -84,10 +75,11 @@ def get_pipeline(
         inputs=sagemaker.inputs.CreateModelInput(instance_type="ml.m5.large")
     )
 
+    # --- Крок 2.5: Перевірка Дрифту (Drift Check) ---
     sklearn_processor = SKLearnProcessor(
         framework_version="1.2-1",
         role=role,
-        instance_type="ml.t3.medium", # Дешевий
+        instance_type="ml.t3.medium",
         instance_count=1,
         base_job_name="drift-check"
     )
@@ -95,21 +87,17 @@ def get_pipeline(
     step_drift = ProcessingStep(
         name="DriftCheckStep",
         processor=sklearn_processor,
-        code="./src/check_drift.py", # Наш скрипт
+        code="./src/check_drift.py",
+        # ФІКС: Додаємо вхідні дані (щоб скрипт мав що перевіряти)
+        inputs=[
+            ProcessingInput(
+                source=input_data, # Беремо ті самі дані, що і для навчання
+                destination="/opt/ml/processing/input" 
+            )
+        ],
         outputs=[
             ProcessingOutput(output_name="report", source="/opt/ml/processing/output")
         ]
-    )
-    
-    # Додаємо залежність: Реєструвати тільки після перевірки дрифту (навіть якщо він failed, просто щоб був порядок)
-    step_register.add_depends_on([step_drift])
-
-    # --- ОНОВЛЮЄМО ПАЙПЛАЙН ---
-    pipeline = Pipeline(
-        name=pipeline_name,
-        parameters=[training_instance_type, input_data, epochs, batch_size],
-        # Додаємо step_drift у список
-        steps=[step_train, step_create_model, step_drift, step_register] 
     )
 
     # --- Крок 3: Реєстрація ---
@@ -124,12 +112,16 @@ def get_pipeline(
         model_package_group_name=model_package_group_name,
         approval_status="PendingManualApproval"
     )
+    
+    # Додаємо залежність: Реєстрація чекає завершення Drift Check
+    step_register.add_depends_on([step_drift])
 
-    # Збираємо пайплайн
+    # --- ЗБИРАЄМО ПАЙПЛАЙН (Один раз!) ---
     pipeline = Pipeline(
         name=pipeline_name,
         parameters=[training_instance_type, input_data, epochs, batch_size],
-        steps=[step_train, step_create_model, step_register]
+        # Включаємо ВСІ кроки
+        steps=[step_train, step_create_model, step_drift, step_register] 
     )
     
     return pipeline
