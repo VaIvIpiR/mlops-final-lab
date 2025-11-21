@@ -3,30 +3,34 @@ name: Deploy SageMaker Pipeline
 on:
   push:
     branches: [ "main" ]
-  workflow_dispatch: # Дозволяє запускати кнопку вручну з сайту
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Скачуємо твій код
+    # 1. Скачуємо код
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # 2. Встановлюємо Python
+    # 2. Встановлюємо Python 3.10 (ЗМІНА!)
+    # Це змусить GitHub взяти чистий образ без старого кешу
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'
+        python-version: '3.10' 
 
-    # 3. Встановлюємо бібліотеки
+    # 3. Встановлюємо бібліотеки (ЗМІНА!)
+    # Додали --force-reinstall та pip show для перевірки
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install --upgrade "sagemaker>=2.120.0" boto3
+        pip install "sagemaker>=2.150.0" boto3 --upgrade --force-reinstall
+        echo "PЕАЛЬНА ВСТАНОВЛЕНА ВЕРСІЯ:"
+        pip show sagemaker
 
-    # 4. Логінимось в AWS (використовуючи секрети)
+    # 4. Логінимось в AWS
     - name: Configure AWS Credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
@@ -34,7 +38,7 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_REGION }}
 
-    # 5. Запускаємо твій скрипт (він сам знайде роль у змінних)
+    # 5. Запускаємо скрипт
     - name: Run Pipeline Script
       env:
         SAGEMAKER_ROLE_ARN: ${{ secrets.SAGEMAKER_ROLE_ARN }}
