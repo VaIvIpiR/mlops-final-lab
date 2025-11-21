@@ -4,3 +4,4 @@ mlflow
 dagshub
 pandas
 scikit-learn
+evidently

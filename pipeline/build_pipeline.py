@@ -6,6 +6,8 @@ from sagemaker.workflow.step_collections import RegisterModel
 from sagemaker.workflow.parameters import ParameterInteger, ParameterString
 from sagemaker.pytorch import PyTorch, PyTorchModel
 from sagemaker.inputs import TrainingInput
+from sagemaker.sklearn.processing import SKLearnProcessor
+from sagemaker.processing import ProcessingInput, ProcessingOutput
 
 # --- ВАШІ НОВІ РЕСУРСИ З TERRAFORM ---
 TERRAFORM_BUCKET = "mlops-lab-terraform-vaivipir-data"
@@ -80,6 +82,34 @@ def get_pipeline(
         name="BertCreateModelStep",
         model=model,
         inputs=sagemaker.inputs.CreateModelInput(instance_type="ml.m5.large")
+    )
+
+    sklearn_processor = SKLearnProcessor(
+        framework_version="1.2-1",
+        role=role,
+        instance_type="ml.t3.medium", # Дешевий
+        instance_count=1,
+        base_job_name="drift-check"
+    )
+
+    step_drift = ProcessingStep(
+        name="DriftCheckStep",
+        processor=sklearn_processor,
+        code="./src/check_drift.py", # Наш скрипт
+        outputs=[
+            ProcessingOutput(output_name="report", source="/opt/ml/processing/output")
+        ]
+    )
+    
+    # Додаємо залежність: Реєструвати тільки після перевірки дрифту (навіть якщо він failed, просто щоб був порядок)
+    step_register.add_depends_on([step_drift])
+
+    # --- ОНОВЛЮЄМО ПАЙПЛАЙН ---
+    pipeline = Pipeline(
+        name=pipeline_name,
+        parameters=[training_instance_type, input_data, epochs, batch_size],
+        # Додаємо step_drift у список
+        steps=[step_train, step_create_model, step_drift, step_register] 
     )
 
     # --- Крок 3: Реєстрація ---
