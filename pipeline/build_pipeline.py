@@ -20,21 +20,18 @@ def get_pipeline(
     """
     sess = sagemaker.Session()
     
-    # Якщо бакет не передали, беремо дефолтний
     if default_bucket is None:
         default_bucket = sess.default_bucket()
 
-    # Параметри пайплайну (можна переозначити при запуску)
     training_instance_type = ParameterString(name="TrainingInstanceType", default_value="ml.m5.large")
-    # Увага: шлях до даних тепер динамічний або жорстко заданий
     input_data = ParameterString(name="InputData", default_value=f"s3://mlops-lab-shpadkivskyi-2025/data/raw/")
     epochs = ParameterInteger(name="Epochs", default_value=3)
     batch_size = ParameterInteger(name="BatchSize", default_value=8)
 
-    # --- Крок 1: Тренування ---
+    # Training
     estimator = PyTorch(
         entry_point='train_sagemaker.py',
-        source_dir='./src', # Шлях відносно кореня, звідки запускатимемо
+        source_dir='./src',
         role=role,
         framework_version='1.13',
         py_version='py39',
@@ -55,7 +52,7 @@ def get_pipeline(
         inputs={"training": TrainingInput(s3_data=input_data)}
     )
 
-    # --- Крок 2: Створення моделі ---
+    # Model
     model = PyTorchModel(
         model_data=step_train.properties.ModelArtifacts.S3ModelArtifacts,
         role=role,
@@ -72,7 +69,6 @@ def get_pipeline(
         inputs=sagemaker.inputs.CreateModelInput(instance_type="ml.m5.large")
     )
 
-    # --- Крок 3: Реєстрація ---
     step_register = RegisterModel(
         name="BertRegisterStep",
         estimator=estimator,
@@ -85,7 +81,6 @@ def get_pipeline(
         approval_status="PendingManualApproval"
     )
 
-    # Збираємо пайплайн
     pipeline = Pipeline(
         name=pipeline_name,
         parameters=[training_instance_type, input_data, epochs, batch_size],
@@ -93,3 +88,27 @@ def get_pipeline(
     )
     
     return pipeline
+
+
+if __name__ == "__main__":
+
+    print("Building pipeline...")
+    
+    import sys
+    
+    role_arn = os.environ.get("SAGEMAKER_ROLE_ARN")
+    if not role_arn:
+        raise ValueError("SAGEMAKER_ROLE_ARN environment variable is missing!")
+
+    pipeline = get_pipeline(
+        region=os.environ.get("AWS_REGION", "eu-north-1"),
+        role=role_arn
+    )
+    
+    print(f"📝 Pipeline definition: {pipeline.name}")
+    
+    pipeline.upsert(role_arn=role_arn)
+    print("✅ Pipeline submitted/updated in SageMaker.")
+    
+    execution = pipeline.start()
+    print(f"🏃 Pipeline execution started. Execution ARN: {execution.arn}")

@@ -1,0 +1,42 @@
+name: Deploy SageMaker Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch: # Дозволяє запускати кнопку вручну з сайту
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Скачуємо твій код
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # 2. Встановлюємо Python
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+
+    # 3. Встановлюємо бібліотеки
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install sagemaker boto3
+
+    # 4. Логінимось в AWS (використовуючи секрети)
+    - name: Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    # 5. Запускаємо твій скрипт (він сам знайде роль у змінних)
+    - name: Run Pipeline Script
+      env:
+        SAGEMAKER_ROLE_ARN: ${{ secrets.SAGEMAKER_ROLE_ARN }}
+      run: |
+        python pipeline/build_pipeline.py
