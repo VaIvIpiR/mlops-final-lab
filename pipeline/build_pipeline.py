@@ -7,6 +7,10 @@ from sagemaker.workflow.parameters import ParameterInteger, ParameterString
 from sagemaker.pytorch import PyTorch, PyTorchModel
 from sagemaker.inputs import TrainingInput
 
+# --- ВАШІ НОВІ РЕСУРСИ З TERRAFORM ---
+TERRAFORM_BUCKET = "mlops-lab-terraform-vaivipir-data"
+TERRAFORM_ROLE = "arn:aws:iam::584360834542:role/mlops-lab-terraform-role"
+
 def get_pipeline(
     region,
     role=None,
@@ -20,23 +24,32 @@ def get_pipeline(
     """
     sess = sagemaker.Session()
     
+    # 1. Якщо бакет не передали, використовуємо наш НОВИЙ з Terraform
     if default_bucket is None:
-        default_bucket = sess.default_bucket()
+        default_bucket = TERRAFORM_BUCKET
 
+    # 2. Параметри пайплайну
     training_instance_type = ParameterString(name="TrainingInstanceType", default_value="ml.m5.large")
-    input_data = ParameterString(name="InputData", default_value=f"s3://mlops-lab-shpadkivskyi-2025/data/raw/")
+    
+    # 3. Вказуємо шлях до даних у НОВОМУ бакеті
+    input_data = ParameterString(
+        name="InputData", 
+        default_value=f"s3://{default_bucket}/data/raw/"
+    )
+    
     epochs = ParameterInteger(name="Epochs", default_value=3)
     batch_size = ParameterInteger(name="BatchSize", default_value=8)
 
-    # Training
+    # --- Крок 1: Тренування ---
     estimator = PyTorch(
         entry_point='train_sagemaker.py',
-        source_dir='./src',
+        source_dir='./src', 
         role=role,
         framework_version='1.13',
         py_version='py39',
         instance_count=1,
         instance_type=training_instance_type,
+        # Зберігаємо результати у новий бакет
         output_path=f"s3://{default_bucket}/NewsClassifier/training_jobs",
         hyperparameters={'epochs': epochs, 'batch-size': batch_size, 'learning-rate': 2e-5},
         environment={
@@ -52,7 +65,7 @@ def get_pipeline(
         inputs={"training": TrainingInput(s3_data=input_data)}
     )
 
-    # Model
+    # --- Крок 2: Створення моделі ---
     model = PyTorchModel(
         model_data=step_train.properties.ModelArtifacts.S3ModelArtifacts,
         role=role,
@@ -69,6 +82,7 @@ def get_pipeline(
         inputs=sagemaker.inputs.CreateModelInput(instance_type="ml.m5.large")
     )
 
+    # --- Крок 3: Реєстрація ---
     step_register = RegisterModel(
         name="BertRegisterStep",
         estimator=estimator,
@@ -81,6 +95,7 @@ def get_pipeline(
         approval_status="PendingManualApproval"
     )
 
+    # Збираємо пайплайн
     pipeline = Pipeline(
         name=pipeline_name,
         parameters=[training_instance_type, input_data, epochs, batch_size],
@@ -89,20 +104,21 @@ def get_pipeline(
     
     return pipeline
 
-
 if __name__ == "__main__":
-
-    print("Building pipeline...")
+    print("🚀 Building pipeline using Terraform resources...")
     
     import sys
     
-    role_arn = os.environ.get("SAGEMAKER_ROLE_ARN")
-    if not role_arn:
-        raise ValueError("SAGEMAKER_ROLE_ARN environment variable is missing!")
+    # Беремо роль з енвайронменту (GitHub) АБО використовуємо нову з Terraform як дефолт
+    role_arn = os.environ.get("SAGEMAKER_ROLE_ARN", TERRAFORM_ROLE)
+    
+    print(f"🔑 Using Role: {role_arn}")
+    print(f"🪣 Using Bucket: {TERRAFORM_BUCKET}")
 
     pipeline = get_pipeline(
         region=os.environ.get("AWS_REGION", "eu-north-1"),
-        role=role_arn
+        role=role_arn,
+        default_bucket=TERRAFORM_BUCKET
     )
     
     print(f"📝 Pipeline definition: {pipeline.name}")
