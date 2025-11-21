@@ -9,6 +9,7 @@ from sagemaker.inputs import TrainingInput
 from sagemaker.sklearn.processing import SKLearnProcessor
 from sagemaker.processing import ProcessingInput, ProcessingOutput
 
+# --- ВАШІ НОВІ РЕСУРСИ З TERRAFORM ---
 TERRAFORM_BUCKET = "mlops-lab-terraform-vaivipir-data"
 TERRAFORM_ROLE = "arn:aws:iam::584360834542:role/mlops-lab-terraform-role"
 
@@ -30,7 +31,12 @@ def get_pipeline(
 
     # Параметри
     training_instance_type = ParameterString(name="TrainingInstanceType", default_value="ml.m5.large")
-    input_data = ParameterString(name="InputData", default_value=f"s3://{default_bucket}/data/raw/")
+    
+    input_data = ParameterString(
+        name="InputData", 
+        default_value=f"s3://{default_bucket}/data/raw/"
+    )
+    
     epochs = ParameterInteger(name="Epochs", default_value=3)
     batch_size = ParameterInteger(name="BatchSize", default_value=8)
 
@@ -88,10 +94,9 @@ def get_pipeline(
         name="DriftCheckStep",
         processor=sklearn_processor,
         code="./src/check_drift.py",
-        # ФІКС: Додаємо вхідні дані (щоб скрипт мав що перевіряти)
         inputs=[
             ProcessingInput(
-                source=input_data, # Беремо ті самі дані, що і для навчання
+                source=input_data, 
                 destination="/opt/ml/processing/input" 
             )
         ],
@@ -99,7 +104,7 @@ def get_pipeline(
             ProcessingOutput(output_name="report", source="/opt/ml/processing/output")
         ]
     )
-
+    
     # --- Крок 3: Реєстрація ---
     step_register = RegisterModel(
         name="BertRegisterStep",
@@ -113,29 +118,28 @@ def get_pipeline(
         approval_status="PendingManualApproval"
     )
     
-    # Додаємо залежність: Реєстрація чекає завершення Drift Check
-    step_register.add_depends_on([step_drift])
+    # МИ ВИДАЛИЛИ add_depends_on, бо RegisterModel це не підтримує.
+    # Вони просто запустяться паралельно після тренування/створення моделі.
 
-    # --- ЗБИРАЄМО ПАЙПЛАЙН (Один раз!) ---
+    # --- ЗБИРАЄМО ПАЙПЛАЙН ---
     pipeline = Pipeline(
         name=pipeline_name,
         parameters=[training_instance_type, input_data, epochs, batch_size],
-        # Включаємо ВСІ кроки
+        # ВАЖЛИВО: Передаємо ВСІ кроки сюди
         steps=[step_train, step_create_model, step_drift, step_register] 
     )
     
     return pipeline
 
 if __name__ == "__main__":
-    print("Building pipeline using Terraform resources...")
+    print("🚀 Building pipeline using Terraform resources...")
     
     import sys
     
-    # Беремо роль з енвайронменту (GitHub) АБО використовуємо нову з Terraform як дефолт
     role_arn = os.environ.get("SAGEMAKER_ROLE_ARN", TERRAFORM_ROLE)
     
-    print(f"Using Role: {role_arn}")
-    print(f"Using Bucket: {TERRAFORM_BUCKET}")
+    print(f"🔑 Using Role: {role_arn}")
+    print(f"🪣 Using Bucket: {TERRAFORM_BUCKET}")
 
     pipeline = get_pipeline(
         region=os.environ.get("AWS_REGION", "eu-north-1"),
@@ -143,10 +147,10 @@ if __name__ == "__main__":
         default_bucket=TERRAFORM_BUCKET
     )
     
-    print(f"Pipeline definition: {pipeline.name}")
+    print(f"📝 Pipeline definition: {pipeline.name}")
     
     pipeline.upsert(role_arn=role_arn)
-    print("Pipeline submitted/updated in SageMaker.")
+    print("✅ Pipeline submitted/updated in SageMaker.")
     
     execution = pipeline.start()
-    print(f"Pipeline execution started. Execution ARN: {execution.arn}")
+    print(f"🏃 Pipeline execution started. Execution ARN: {execution.arn}")
